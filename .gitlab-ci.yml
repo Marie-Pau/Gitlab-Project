@@ -1,0 +1,119 @@
+stages:
+  - build
+  - package
+  - deploy
+
+build-backend:
+  stage: build
+  image: maven:3.8.6-eclipse-temurin-17
+  script:
+    - cd backend
+    - mvn clean compile
+  artifacts:
+    paths:
+      - backend/target/
+  only:
+    - merge_requests
+    - develop
+    - feature
+    - main
+
+build-frontend:
+  stage: build
+  image: node:18-alpine
+  before_script:
+    - cd frontend
+    - npm install
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+  only:
+    - merge_requests
+    - develop
+    - feature
+    - main
+
+package-backend:
+  stage: package
+  image: maven:3.8.6-eclipse-temurin-17
+  script:
+    - cd backend
+    - mvn clean package -DskipTests
+  artifacts:
+    paths:
+      - backend/target/*.jar
+
+package-frontend:
+  stage: package
+  image: node:18-alpine
+  before_script:
+    - cd frontend
+    - npm ci
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+
+docker-build-backend:
+  stage: package
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  needs: 
+    - job: package-backend
+  dependencies:
+    - package-backend
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - cd backend
+    - ls -la target/
+    - docker build --no-cache -t $CI_REGISTRY_IMAGE/backend:latest .
+    - docker push $CI_REGISTRY_IMAGE/backend:latest
+  only:
+    - develop
+    - main
+
+docker-build-frontend:
+  stage: package
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  needs: 
+    - job: package-frontend
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - cd frontend
+    - docker build -t $CI_REGISTRY_IMAGE/frontend:latest .
+    - docker push $CI_REGISTRY_IMAGE/frontend:latest
+  only:
+    - develop
+    - main
+
+deploy-to-ec2:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache openssh
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+  script:
+    - echo "Copie du docker-compose.yml..."
+    - scp docker-compose.yml ubuntu@$DEPLOY_HOST:/home/ubuntu/mero-deploy/docker-compose.yml
+    - echo "Authentification Docker sur EC2..."
+    - ssh ubuntu@$DEPLOY_HOST "echo '$REGISTRY_PASSWORD' | docker login -u '$REGISTRY_USER' --password-stdin registry.gitlab.com"
+    - echo "Déploiement de l'application sur EC2..."
+    - ssh ubuntu@$DEPLOY_HOST 'cd /home/ubuntu/mero-deploy && docker-compose pull && docker-compose up -d'
+  only:
+    - develop
+    - main

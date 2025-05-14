@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: eshop_db
+      MYSQL_USER: mero_user
+      MYSQL_PASSWORD: 123456
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  backend:
+    image: registry.gitlab.com/first-project6045903/mero-project/backend:latest
+    container_name: backend
+    depends_on:
+     - mysql
+    ports:
+      - "8080:8080"
+    environment:
+      DB_NAME: eshop_db
+      USERNAME: mero_user
+      PASSWORD: 123456
+
+  frontend:
+    image: registry.gitlab.com/first-project6045903/mero-project/frontend:latest
+    container_name: frontend
+    depends_on:
+      - backend
+    ports:
+      - "81:80"
+
+volumes:
+  mysql-data:

@@ -1,0 +1,71 @@
+---
+- name: Installer Docker et Docker Compose sur Ubuntu 24.04 via paquets officiels
+  hosts: docker-host
+  become: yes
+  tasks:
+
+    - name: Mettre à jour les paquets
+      apt:
+        update_cache: yes
+
+    - name: Installer Docker depuis les dépôts Ubuntu officiels
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Démarrer et activer Docker
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Créer le groupe docker s'il n'existe pas
+      group:
+        name: docker
+        state: present
+
+    - name: Pause pour s'assurer que le groupe docker est bien pris en compte
+      pause:
+        seconds: 3
+
+    - name: Vérifier que le groupe docker existe bien
+      command: getent group docker
+      register: docker_group_check
+      changed_when: false
+      failed_when: docker_group_check.rc != 0
+
+    - name: Ajouter l'utilisateur ubuntu au groupe docker
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Télécharger Docker Compose
+      get_url:
+        url: https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    - name: Vérifier la version de Docker
+      command: docker --version
+      register: docker_version
+
+    - name: Afficher la version de Docker
+      debug:
+        msg: "{{ docker_version.stdout }}"
+
+    - name: Vérifier la version de Docker Compose
+      command: docker-compose --version
+      register: docker_compose_version
+
+    - name: Afficher la version de Docker Compose
+      debug:
+        msg: "{{ docker_compose_version.stdout }}"
+
+    - name: Copier le fichier docker-compose.yml vers la machine distante
+      copy:
+        src: docker-compose.yml
+        dest: /home/ubuntu/mero-deploy/docker-compose.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
